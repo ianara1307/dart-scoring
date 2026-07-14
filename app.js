@@ -218,6 +218,7 @@ function handleTotalScoreSubmit() {
   } else if (remaining === 0) {
     // Checkout — ask how many darts
     state.pendingCheckoutTotal = raw;
+    pauseVoice();
     dartCountModal.classList.add('active');
   } else {
     // Normal turn — 3 darts assumed
@@ -228,6 +229,7 @@ function handleTotalScoreSubmit() {
 document.querySelectorAll('.dart-count-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     dartCountModal.classList.remove('active');
+    stopVoice();
     const count = parseInt(btn.dataset.count, 10);
     const player = state.players[state.activePlayerIndex];
     player.history.push({ darts: count, score: state.pendingCheckoutTotal });
@@ -259,6 +261,7 @@ function concludeTurn(isBust) {
 }
 
 function showTurnSummary(isBust, total, darts, showDartBreakdown) {
+  pauseVoice();
   modalTitle.textContent = isBust ? 'Bust!' : 'Turn Total';
   modalTitle.classList.toggle('bust', isBust);
 
@@ -280,6 +283,7 @@ function showTurnSummary(isBust, total, darts, showDartBreakdown) {
 }
 
 function closeTurnSummary() {
+  resumeVoice();
   const player = state.players[state.activePlayerIndex];
   const { isBust, total, darts } = state.pendingConclusion;
   player.history.push({ darts, score: isBust ? 0 : total });
@@ -292,6 +296,7 @@ function closeTurnSummary() {
 }
 
 function editTurn() {
+  resumeVoice();
   const player = state.players[state.activePlayerIndex];
   if (state.pendingConclusion && !state.pendingConclusion.isBust) {
     player.score += state.pendingConclusion.total;
@@ -482,6 +487,7 @@ function renderTurn() {
 }
 
 function showWinScreen(name) {
+  stopVoice();
   winnerNameEl.textContent = name;
 
   winStatsEl.innerHTML = '';
@@ -507,7 +513,10 @@ function escapeHtml(str) {
 }
 
 quitGameBtn.addEventListener('click', () => {
-  if (confirm('Quit current game and return to setup?')) showScreen('setup-screen');
+  if (confirm('Quit current game and return to setup?')) {
+    stopVoice();
+    showScreen('setup-screen');
+  }
 });
 
 rematchBtn.addEventListener('click', () => {
@@ -518,6 +527,183 @@ rematchBtn.addEventListener('click', () => {
 });
 
 newGameBtn.addEventListener('click', () => showScreen('setup-screen'));
+
+// ===================================================================
+// VOICE INPUT
+// ===================================================================
+
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const micBtn = document.getElementById('mic-btn');
+const voiceFeedbackEl = document.getElementById('voice-feedback');
+let recognition = null;
+let voiceActive = false;
+let voiceFeedbackTimer = null;
+
+const WORD_NUMS = {
+  'zero':0,'oh':0,'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,
+  'seven':7,'eight':8,'nine':9,'ten':10,'eleven':11,'twelve':12,
+  'thirteen':13,'fourteen':14,'fifteen':15,'sixteen':16,'seventeen':17,
+  'eighteen':18,'nineteen':19,'twenty':20,'thirty':30,'forty':40,
+  'fifty':50,'sixty':60,'seventy':70,'eighty':80,'ninety':90,'hundred':100
+};
+
+function parseDartFromSpeech(t) {
+  t = t.toLowerCase().trim();
+
+  if (/^(miss|missed|no score|nowt|zero|0)$/.test(t))
+    return { type: 'special', special: 'miss' };
+
+  if (/^(bull$|bullseye|double bull|bull 50|fifty)/.test(t))
+    return { type: 'special', special: 'bull50' };
+
+  if (/^(twenty[\s-]?five|outer bull|bull 25|single bull|25)/.test(t))
+    return { type: 'special', special: 'bull25' };
+
+  let mult = 1;
+  t = t.replace(/^(treble|triple)\s*/, () => { mult = 3; return ''; })
+       .replace(/^double\s*/, () => { mult = 2; return ''; })
+       .replace(/^single\s*/, () => { mult = 1; return ''; });
+
+  let num = parseInt(t, 10);
+  if (isNaN(num)) num = WORD_NUMS[t.trim()];
+  if (num >= 1 && num <= 20) return { type: 'number', num, mult };
+  return null;
+}
+
+function parseTotalFromSpeech(t) {
+  t = t.toLowerCase().trim().replace(/[^a-z0-9 ]/g, ' ').trim();
+
+  // Direct digits
+  const direct = parseInt(t.replace(/\s+/g, ''), 10);
+  if (!isNaN(direct) && direct >= 0 && direct <= 180) return direct;
+
+  const words = t.split(/\s+/).filter(w => w !== 'and' && w !== 'a' && w !== '');
+
+  // Informal "one forty", "one eighty" → X*100 + Y
+  if (words.length === 2) {
+    const a = WORD_NUMS[words[0]], b = WORD_NUMS[words[1]];
+    if (a !== undefined && b !== undefined && a >= 1 && a <= 9 && b >= 10 && b % 10 === 0) {
+      const v = a * 100 + b;
+      if (v <= 180) return v;
+    }
+  }
+
+  // Standard word-number parsing
+  let total = 0, current = 0;
+  for (const w of words) {
+    const n = WORD_NUMS[w];
+    if (n === undefined) continue;
+    if (n === 100) { current = current === 0 ? 100 : current * 100; total += current; current = 0; }
+    else current += n;
+  }
+  total += current;
+  return total >= 0 && total <= 180 ? total : NaN;
+}
+
+function initVoice() {
+  if (!SpeechRecognition) { micBtn.style.display = 'none'; return; }
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.lang = 'en-GB';
+
+  recognition.onresult = (e) => {
+    const transcript = e.results[0][0].transcript.toLowerCase().trim();
+    processVoiceInput(transcript);
+  };
+
+  recognition.onend = () => {
+    if (voiceActive) {
+      try { recognition.start(); } catch (_) {}
+    }
+  };
+
+  recognition.onerror = (e) => {
+    if (e.error === 'not-allowed') {
+      setVoiceActive(false);
+      showVoiceFeedback('Microphone access denied', 3000);
+    }
+    // 'no-speech', 'aborted' etc — onend will restart
+  };
+}
+
+function setVoiceActive(active) {
+  voiceActive = active;
+  micBtn.classList.toggle('listening', active);
+  micBtn.textContent = active ? '🎙️' : '🎤';
+  if (active) {
+    try { recognition.start(); } catch (_) {}
+    showVoiceFeedback('Listening…', 0);
+  } else {
+    try { recognition.stop(); } catch (_) {}
+    clearVoiceFeedback();
+  }
+}
+
+function pauseVoice() {
+  if (voiceActive && recognition) try { recognition.stop(); } catch (_) {}
+}
+
+function resumeVoice() {
+  if (voiceActive && recognition) try { recognition.start(); } catch (_) {}
+}
+
+function stopVoice() {
+  voiceActive = false;
+  micBtn.classList.remove('listening');
+  micBtn.textContent = '🎤';
+  if (recognition) try { recognition.stop(); } catch (_) {}
+  clearVoiceFeedback();
+}
+
+function showVoiceFeedback(text, duration) {
+  clearTimeout(voiceFeedbackTimer);
+  voiceFeedbackEl.textContent = text;
+  voiceFeedbackEl.classList.add('visible');
+  if (duration > 0) {
+    voiceFeedbackTimer = setTimeout(() => {
+      voiceActive ? showVoiceFeedback('Listening…', 0) : clearVoiceFeedback();
+    }, duration);
+  }
+}
+
+function clearVoiceFeedback() {
+  clearTimeout(voiceFeedbackTimer);
+  voiceFeedbackEl.classList.remove('visible');
+}
+
+function processVoiceInput(transcript) {
+  if (state.inputMode === 'dart') {
+    const result = parseDartFromSpeech(transcript);
+    if (!result) { showVoiceFeedback(`"${transcript}" — not recognised`, 2000); return; }
+
+    if (result.type === 'special') {
+      showVoiceFeedback(`Heard: ${transcript}`, 1500);
+      handleSpecialPress(result.special);
+    } else {
+      const prefix = { 1: '', 2: 'D', 3: 'T' }[result.mult];
+      showVoiceFeedback(`Heard: ${transcript} → ${prefix}${result.num}`, 1500);
+      if (state.turnDarts.length >= 3) return;
+      const value = result.num * result.mult;
+      const label = `${prefix}${result.num}`;
+      addDart({ value, label, isDouble: result.mult === 2 });
+    }
+  } else {
+    const score = parseTotalFromSpeech(transcript);
+    if (isNaN(score)) { showVoiceFeedback(`"${transcript}" — not recognised`, 2000); return; }
+    showVoiceFeedback(`Heard: ${score}`, 1500);
+    totalScoreInput.value = score;
+    setTimeout(handleTotalScoreSubmit, 600);
+  }
+}
+
+micBtn.addEventListener('click', () => {
+  if (!recognition) return;
+  setVoiceActive(!voiceActive);
+});
+
+initVoice();
 
 // ===================================================================
 // INIT

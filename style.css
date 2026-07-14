@@ -161,6 +161,42 @@ h1 {
   font-weight: 700;
 }
 
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+#mic-btn {
+  font-size: 1.1rem;
+}
+
+#mic-btn.listening {
+  background: var(--accent);
+  border-color: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.voice-feedback {
+  display: none;
+  background: var(--panel-light);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  text-align: center;
+  min-height: 36px;
+}
+
+.voice-feedback.visible {
+  display: block;
+}
+
 .icon-btn {
   background: var(--panel);
   border: 1px solid var(--border);
