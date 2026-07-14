@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dart Scoring</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- SETUP SCREEN -->
+  <section id="setup-screen" class="screen active">
+    <h1>🎯 Dart Scoring</h1>
+
+    <div class="setup-row">
+      <label>Game Type</label>
+      <div class="toggle-group" id="game-type-toggle">
+        <button class="toggle-btn active" data-value="501">501</button>
+        <button class="toggle-btn" data-value="301">301</button>
+      </div>
+    </div>
+
+    <div class="setup-row">
+      <label>Out Mode</label>
+      <div class="toggle-group" id="out-mode-toggle">
+        <button class="toggle-btn active" data-value="double">Double Out</button>
+        <button class="toggle-btn" data-value="straight">Straight Out</button>
+      </div>
+    </div>
+
+    <div class="setup-row">
+      <label>Players</label>
+      <div id="player-list"></div>
+      <button id="add-player-btn" class="secondary-btn">+ Add Player</button>
+    </div>
+
+    <button id="start-game-btn" class="primary-btn">Start Game</button>
+  </section>
+
+  <!-- GAME SCREEN -->
+  <section id="game-screen" class="screen">
+    <div class="game-header">
+      <span id="game-title"></span>
+      <button id="quit-game-btn" class="icon-btn">✕</button>
+    </div>
+
+    <div id="scoreboard"></div>
+
+    <div id="checkout-suggestion" class="checkout-box" style="display:none;">
+      <span class="checkout-label">Checkout:</span>
+      <span id="checkout-text"></span>
+    </div>
+
+    <div id="current-turn-info">
+      <div id="active-player-name"></div>
+      <div id="dart-marks">
+        <span class="dart-mark" data-idx="0"></span>
+        <span class="dart-mark" data-idx="1"></span>
+        <span class="dart-mark" data-idx="2"></span>
+      </div>
+      <div id="turn-total">Turn total: 0</div>
+    </div>
+
+    <div id="entry-pad">
+      <div class="multiplier-row">
+        <button class="mult-btn active" data-mult="1">Single</button>
+        <button class="mult-btn" data-mult="2">Double</button>
+        <button class="mult-btn" data-mult="3">Triple</button>
+      </div>
+      <div class="number-grid" id="number-grid"></div>
+      <div class="special-row">
+        <button class="num-btn special" data-special="bull25">25</button>
+        <button class="num-btn special" data-special="bull50">Bull 50</button>
+        <button class="num-btn special" data-special="miss">Miss</button>
+      </div>
+      <div class="action-row">
+        <button id="undo-btn" class="secondary-btn">Undo</button>
+        <button id="end-turn-btn" class="primary-btn">End Turn</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- WIN SCREEN -->
+  <section id="win-screen" class="screen">
+    <h1>🏆 <span id="winner-name"></span> Wins!</h1>
+    <div id="win-stats"></div>
+    <button id="rematch-btn" class="primary-btn">Rematch</button>
+    <button id="new-game-btn" class="secondary-btn">New Game</button>
+  </section>
+
+</div>
+
+<!-- TURN SUMMARY MODAL -->
+<div id="turn-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div id="modal-title"></div>
+    <div id="modal-darts"></div>
+    <div id="modal-total"></div>
+    <div class="modal-action-row">
+      <button id="modal-edit-btn" class="secondary-btn">Edit</button>
+      <button id="modal-continue-btn" class="primary-btn">Continue</button>
+    </div>
+  </div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
