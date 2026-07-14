@@ -1,18 +1,21 @@
 // ---------- State ----------
 let state = {
   gameType: 501,
-  outMode: 'double', // 'double' | 'straight'
-  players: [],       // [{ name, score, legs }]
+  outMode: 'double',   // 'double' | 'straight'
+  inputMode: 'dart',   // 'dart' | 'total'
+  players: [],         // [{ name, score, legs, history }]
   activePlayerIndex: 0,
   startingPlayerIndex: 0,
-  turnDarts: [],      // [{ value, label, isDouble }]
+  turnDarts: [],       // [{ value, label, isDouble }] — dart-by-dart mode only
   selectedMult: 1,
-  pendingConclusion: null // { isBust, total } while the turn-summary modal is open
+  pendingConclusion: null, // { isBust, total, darts } while turn-summary modal is open
+  pendingCheckoutTotal: 0  // total score submitted in total mode when remaining === 0
 };
 
 // ---------- Setup screen elements ----------
 const gameTypeToggle = document.getElementById('game-type-toggle');
 const outModeToggle = document.getElementById('out-mode-toggle');
+const inputModeToggle = document.getElementById('input-mode-toggle');
 const playerListEl = document.getElementById('player-list');
 const addPlayerBtn = document.getElementById('add-player-btn');
 const startGameBtn = document.getElementById('start-game-btn');
@@ -30,9 +33,14 @@ const multButtons = document.querySelectorAll('.mult-btn');
 const undoBtn = document.getElementById('undo-btn');
 const endTurnBtn = document.getElementById('end-turn-btn');
 const quitGameBtn = document.getElementById('quit-game-btn');
+const entryPad = document.getElementById('entry-pad');
+const totalScorePad = document.getElementById('total-score-pad');
+const totalScoreInput = document.getElementById('total-score-input');
+const totalScoreSubmit = document.getElementById('total-score-submit');
 
 // ---------- Win screen elements ----------
 const winnerNameEl = document.getElementById('winner-name');
+const winStatsEl = document.getElementById('win-stats');
 const rematchBtn = document.getElementById('rematch-btn');
 const newGameBtn = document.getElementById('new-game-btn');
 
@@ -43,6 +51,9 @@ const modalDarts = document.getElementById('modal-darts');
 const modalTotal = document.getElementById('modal-total');
 const modalContinueBtn = document.getElementById('modal-continue-btn');
 const modalEditBtn = document.getElementById('modal-edit-btn');
+
+// ---------- Dart count modal elements ----------
+const dartCountModal = document.getElementById('dart-count-modal');
 
 // ===================================================================
 // SETUP SCREEN
@@ -62,9 +73,7 @@ function addPlayerRow(name = '') {
   removeBtn.className = 'remove-player';
   removeBtn.textContent = '✕';
   removeBtn.addEventListener('click', () => {
-    if (playerListEl.children.length > 1) {
-      row.remove();
-    }
+    if (playerListEl.children.length > 1) row.remove();
   });
 
   row.appendChild(input);
@@ -72,7 +81,6 @@ function addPlayerRow(name = '') {
   playerListEl.appendChild(row);
 }
 
-// Toggle group helper
 function setupToggle(toggleEl, onChange) {
   toggleEl.addEventListener('click', (e) => {
     const btn = e.target.closest('.toggle-btn');
@@ -85,6 +93,7 @@ function setupToggle(toggleEl, onChange) {
 
 setupToggle(gameTypeToggle, (val) => { state.gameType = parseInt(val, 10); });
 setupToggle(outModeToggle, (val) => { state.outMode = val; });
+setupToggle(inputModeToggle, (val) => { state.inputMode = val; });
 
 addPlayerBtn.addEventListener('click', () => addPlayerRow());
 
@@ -96,23 +105,21 @@ startGameBtn.addEventListener('click', () => {
     name,
     score: state.gameType,
     legs: 0,
-    history: [] // [{ darts, score }] one entry per completed turn
+    history: []
   }));
   state.activePlayerIndex = 0;
   state.startingPlayerIndex = 0;
-
   startGame();
 });
 
 // ===================================================================
-// NUMBER GRID / ENTRY PAD
+// NUMBER GRID / DART-BY-DART PAD
 // ===================================================================
 
 for (let i = 1; i <= 20; i++) {
   const btn = document.createElement('button');
   btn.className = 'num-btn';
   btn.textContent = i;
-  btn.dataset.num = i;
   btn.addEventListener('click', () => handleNumberPress(i));
   numberGrid.appendChild(btn);
 }
@@ -131,23 +138,6 @@ document.querySelectorAll('.special-row .special').forEach(btn => {
 
 undoBtn.addEventListener('click', undoLastDart);
 endTurnBtn.addEventListener('click', () => concludeTurn(false));
-modalContinueBtn.addEventListener('click', closeTurnSummary);
-modalEditBtn.addEventListener('click', editTurn);
-quitGameBtn.addEventListener('click', () => {
-  if (confirm('Quit current game and return to setup?')) {
-    showScreen('setup-screen');
-  }
-});
-
-rematchBtn.addEventListener('click', () => {
-  // Reset scores, rotate starting player
-  state.startingPlayerIndex = (state.startingPlayerIndex + 1) % state.players.length;
-  state.players.forEach(p => { p.score = state.gameType; p.history = []; });
-  state.activePlayerIndex = state.startingPlayerIndex;
-  startGame(true);
-});
-
-newGameBtn.addEventListener('click', () => showScreen('setup-screen'));
 
 function handleNumberPress(num) {
   if (state.turnDarts.length >= 3) return;
@@ -184,37 +174,19 @@ function addDart(dart) {
   const turnTotal = state.turnDarts.reduce((sum, d) => sum + d.value, 0);
   const remaining = player.score - turnTotal;
 
-  // Check for bust / win immediately
-  if (remaining < 0) {
-    // Bust
-    concludeTurn(true);
-    return;
-  }
+  if (remaining < 0) { concludeTurn(true); return; }
+
   if (state.outMode === 'double') {
     if (remaining === 0) {
-      if (dart.isDouble) {
-        winLeg();
-        return;
-      } else {
-        concludeTurn(true);
-        return;
-      }
+      if (dart.isDouble) { winLeg(); return; }
+      else { concludeTurn(true); return; }
     }
-    if (remaining === 1) {
-      concludeTurn(true);
-      return;
-    }
-  } else { // straight out
-    if (remaining === 0) {
-      winLeg();
-      return;
-    }
+    if (remaining === 1) { concludeTurn(true); return; }
+  } else {
+    if (remaining === 0) { winLeg(); return; }
   }
 
-  // If 3 darts thrown without bust/win, end the turn normally
-  if (state.turnDarts.length === 3) {
-    concludeTurn(false);
-  }
+  if (state.turnDarts.length === 3) concludeTurn(false);
 }
 
 function undoLastDart() {
@@ -224,42 +196,93 @@ function undoLastDart() {
 }
 
 // ===================================================================
-// TURN / SCORING LOGIC
+// TOTAL SCORE PAD
 // ===================================================================
 
-// isBust = true means the turn total is discarded (score unchanged)
+totalScoreSubmit.addEventListener('click', handleTotalScoreSubmit);
+totalScoreInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') handleTotalScoreSubmit();
+});
+
+function handleTotalScoreSubmit() {
+  const raw = parseInt(totalScoreInput.value, 10);
+  if (isNaN(raw) || raw < 0 || raw > 180) return;
+  totalScoreInput.value = '';
+
+  const player = state.players[state.activePlayerIndex];
+  const remaining = player.score - raw;
+
+  if (remaining < 0 || (state.outMode === 'double' && remaining === 1)) {
+    // Bust
+    concludeTotalTurn(true, raw, 3);
+  } else if (remaining === 0) {
+    // Checkout — ask how many darts
+    state.pendingCheckoutTotal = raw;
+    dartCountModal.classList.add('active');
+  } else {
+    // Normal turn — 3 darts assumed
+    concludeTotalTurn(false, raw, 3);
+  }
+}
+
+document.querySelectorAll('.dart-count-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    dartCountModal.classList.remove('active');
+    const count = parseInt(btn.dataset.count, 10);
+    const player = state.players[state.activePlayerIndex];
+    player.history.push({ darts: count, score: state.pendingCheckoutTotal });
+    player.score = 0;
+    player.legs += 1;
+    showWinScreen(player.name);
+  });
+});
+
+function concludeTotalTurn(isBust, total, darts) {
+  const player = state.players[state.activePlayerIndex];
+  if (!isBust) player.score -= total;
+  state.pendingConclusion = { isBust, total, darts };
+  renderGame();
+  showTurnSummary(isBust, total, darts, false);
+}
+
+// ===================================================================
+// TURN / SCORING LOGIC (dart-by-dart mode)
+// ===================================================================
+
 function concludeTurn(isBust) {
   const player = state.players[state.activePlayerIndex];
   const turnTotal = state.turnDarts.reduce((sum, d) => sum + d.value, 0);
-  if (!isBust) {
-    player.score -= turnTotal;
-  }
-  state.pendingConclusion = { isBust, total: turnTotal };
+  if (!isBust) player.score -= turnTotal;
+  state.pendingConclusion = { isBust, total: turnTotal, darts: state.turnDarts.length };
   renderGame();
-  showTurnSummary(isBust, turnTotal);
+  showTurnSummary(isBust, turnTotal, state.turnDarts.length, true);
 }
 
-function showTurnSummary(isBust, total) {
+function showTurnSummary(isBust, total, darts, showDartBreakdown) {
   modalTitle.textContent = isBust ? 'Bust!' : 'Turn Total';
   modalTitle.classList.toggle('bust', isBust);
 
   modalDarts.innerHTML = '';
-  for (let i = 0; i < 3; i++) {
-    const dart = state.turnDarts[i];
-    const el = document.createElement('span');
-    el.className = 'dart-mark' + (dart ? '' : ' empty');
-    el.textContent = dart ? (dart.label || '0') : '-';
-    modalDarts.appendChild(el);
+  if (showDartBreakdown) {
+    for (let i = 0; i < 3; i++) {
+      const dart = state.turnDarts[i];
+      const el = document.createElement('span');
+      el.className = 'dart-mark' + (dart ? '' : ' empty');
+      el.textContent = dart ? (dart.label || '0') : '-';
+      modalDarts.appendChild(el);
+    }
   }
 
   modalTotal.textContent = isBust ? '0' : `${total}`;
+  // Hide Edit button in total-score mode (no individual darts to change)
+  modalEditBtn.style.display = showDartBreakdown ? '' : 'none';
   turnModal.classList.add('active');
 }
 
 function closeTurnSummary() {
   const player = state.players[state.activePlayerIndex];
-  const { isBust, total } = state.pendingConclusion;
-  player.history.push({ darts: state.turnDarts.length, score: isBust ? 0 : total });
+  const { isBust, total, darts } = state.pendingConclusion;
+  player.history.push({ darts, score: isBust ? 0 : total });
 
   turnModal.classList.remove('active');
   state.pendingConclusion = null;
@@ -277,6 +300,9 @@ function editTurn() {
   turnModal.classList.remove('active');
   renderGame();
 }
+
+modalContinueBtn.addEventListener('click', closeTurnSummary);
+modalEditBtn.addEventListener('click', editTurn);
 
 function winLeg() {
   const player = state.players[state.activePlayerIndex];
@@ -301,10 +327,8 @@ const THROW_OPTIONS = (() => {
   return options;
 })();
 
-// Returns array of throw labels, or null if no checkout possible
 function findCheckout(score, dartsLeft, requireDoubleFinish) {
   if (score <= 0) return null;
-
   for (let darts = 1; darts <= dartsLeft; darts++) {
     const result = tryExact(score, darts, requireDoubleFinish);
     if (result) return result;
@@ -315,7 +339,6 @@ function findCheckout(score, dartsLeft, requireDoubleFinish) {
 function tryExact(score, darts, requireDoubleFinish) {
   if (darts === 1) {
     if (!requireDoubleFinish) {
-      // Any single throw value 1-60 (matching a real dart segment) finishes
       const match = THROW_OPTIONS.find(o => o.value === score);
       return match ? [match.label] : null;
     }
@@ -323,13 +346,11 @@ function tryExact(score, darts, requireDoubleFinish) {
     if (score >= 2 && score <= 40 && score % 2 === 0) return [`D${score / 2}`];
     return null;
   }
-
   for (const opt of THROW_OPTIONS) {
     const remainder = score - opt.value;
     if (remainder < 0) continue;
-    // Avoid leaving a remainder that can never be finished (e.g. 1 with double-out)
     if (requireDoubleFinish && remainder === 1) continue;
-    if (remainder === 0) continue; // can't use last dart of a multi-dart sequence to land exactly 0 here; handled by darts===1 case at outer loop
+    if (remainder === 0) continue;
     const rest = tryExact(remainder, darts - 1, requireDoubleFinish);
     if (rest) return [opt.label, ...rest];
   }
@@ -346,19 +367,32 @@ function showScreen(id) {
 }
 
 function startGame(isRematch) {
-  if (!isRematch) {
-    // nothing extra needed; state.players already set
-  }
   state.turnDarts = [];
   resetMultiplier();
+
+  const isDart = state.inputMode === 'dart';
+  entryPad.style.display = isDart ? '' : 'none';
+  totalScorePad.style.display = isDart ? 'none' : '';
+  // dart-marks / checkout suggestion only relevant in dart-by-dart mode
+  document.getElementById('current-turn-info').style.display = isDart ? '' : '';
+
   showScreen('game-screen');
   renderGame();
+
+  if (!isDart) {
+    totalScoreInput.focus();
+  }
+}
+
+function playerAverage(p) {
+  const totalDarts = p.history.reduce((s, h) => s + h.darts, 0);
+  const totalScore = p.history.reduce((s, h) => s + h.score, 0);
+  return totalDarts > 0 ? (totalScore / totalDarts * 3).toFixed(1) : null;
 }
 
 function renderGame() {
   gameTitleEl.textContent = `${state.gameType} • ${state.outMode === 'double' ? 'Double Out' : 'Straight Out'}`;
 
-  // Scoreboard
   scoreboardEl.innerHTML = '';
   state.players.forEach((p, i) => {
     const card = document.createElement('div');
@@ -371,12 +405,24 @@ function renderGame() {
     nameEl.className = 'pname';
     nameEl.innerHTML = `${escapeHtml(p.name)}${p.legs > 0 ? `<span class="legs">Legs: ${p.legs}</span>` : ''}`;
 
+    const scoreCol = document.createElement('div');
+    scoreCol.className = 'pscore-col';
+
     const scoreEl = document.createElement('div');
     scoreEl.className = 'pscore';
     scoreEl.textContent = p.score;
+    scoreCol.appendChild(scoreEl);
+
+    const avg = playerAverage(p);
+    if (avg !== null) {
+      const avgEl = document.createElement('div');
+      avgEl.className = 'pavg';
+      avgEl.textContent = `avg ${avg}`;
+      scoreCol.appendChild(avgEl);
+    }
 
     topRow.appendChild(nameEl);
-    topRow.appendChild(scoreEl);
+    topRow.appendChild(scoreCol);
     card.appendChild(topRow);
 
     if (p.history.length > 0) {
@@ -396,25 +442,31 @@ function renderTurn() {
   const player = state.players[state.activePlayerIndex];
   activePlayerNameEl.textContent = `${player.name}'s turn`;
 
+  const isDart = state.inputMode === 'dart';
+
   const turnTotal = state.turnDarts.reduce((sum, d) => sum + d.value, 0);
   const remaining = player.score - turnTotal;
 
-  dartMarks.forEach((el, idx) => {
-    const dart = state.turnDarts[idx];
-    if (dart) {
-      el.textContent = dart.label || '0';
-      el.classList.remove('empty');
-    } else {
-      el.textContent = '-';
-      el.classList.add('empty');
-    }
-  });
+  if (isDart) {
+    dartMarks.forEach((el, idx) => {
+      const dart = state.turnDarts[idx];
+      if (dart) {
+        el.textContent = dart.label || '0';
+        el.classList.remove('empty');
+      } else {
+        el.textContent = '-';
+        el.classList.add('empty');
+      }
+    });
+    turnTotalEl.textContent = `Turn total: ${turnTotal}  |  Remaining: ${remaining >= 0 ? remaining : player.score}`;
+  } else {
+    dartMarks.forEach(el => { el.textContent = '-'; el.classList.add('empty'); });
+    turnTotalEl.textContent = `Remaining: ${player.score}`;
+  }
 
-  turnTotalEl.textContent = `Turn total: ${turnTotal}  |  Remaining: ${remaining >= 0 ? remaining : player.score}`;
-
-  // Checkout suggestion
-  const dartsLeft = 3 - state.turnDarts.length;
-  const targetScore = remaining >= 0 ? remaining : player.score;
+  // Checkout suggestion (dart-by-dart: uses darts left; total mode: always 3 darts)
+  const dartsLeft = isDart ? 3 - state.turnDarts.length : 3;
+  const targetScore = isDart ? (remaining >= 0 ? remaining : player.score) : player.score;
   let suggestion = null;
 
   if (dartsLeft > 0 && targetScore > 0 && targetScore <= 170) {
@@ -428,8 +480,6 @@ function renderTurn() {
     checkoutBox.style.display = 'none';
   }
 }
-
-const winStatsEl = document.getElementById('win-stats');
 
 function showWinScreen(name) {
   winnerNameEl.textContent = name;
@@ -455,6 +505,19 @@ function escapeHtml(str) {
   div.textContent = str;
   return div.innerHTML;
 }
+
+quitGameBtn.addEventListener('click', () => {
+  if (confirm('Quit current game and return to setup?')) showScreen('setup-screen');
+});
+
+rematchBtn.addEventListener('click', () => {
+  state.startingPlayerIndex = (state.startingPlayerIndex + 1) % state.players.length;
+  state.players.forEach(p => { p.score = state.gameType; p.history = []; });
+  state.activePlayerIndex = state.startingPlayerIndex;
+  startGame(true);
+});
+
+newGameBtn.addEventListener('click', () => showScreen('setup-screen'));
 
 // ===================================================================
 // INIT

@@ -30,6 +30,14 @@
     </div>
 
     <div class="setup-row">
+      <label>Score Input</label>
+      <div class="toggle-group" id="input-mode-toggle">
+        <button class="toggle-btn active" data-value="dart">Dart by Dart</button>
+        <button class="toggle-btn" data-value="total">Total Throw Score</button>
+      </div>
+    </div>
+
+    <div class="setup-row">
       <label>Players</label>
       <div id="player-list"></div>
       <button id="add-player-btn" class="secondary-btn">+ Add Player</button>
@@ -62,11 +70,12 @@
       <div id="turn-total">Turn total: 0</div>
     </div>
 
+    <!-- DART BY DART PAD -->
     <div id="entry-pad">
       <div class="multiplier-row">
         <button class="mult-btn active" data-mult="1">Single</button>
         <button class="mult-btn" data-mult="2">Double</button>
-        <button class="mult-btn" data-mult="3">Triple</button>
+        <button class="mult-btn" data-mult="3">Treble</button>
       </div>
       <div class="number-grid" id="number-grid"></div>
       <div class="special-row">
@@ -77,6 +86,14 @@
       <div class="action-row">
         <button id="undo-btn" class="secondary-btn">Undo</button>
         <button id="end-turn-btn" class="primary-btn">End Turn</button>
+      </div>
+    </div>
+
+    <!-- TOTAL SCORE PAD -->
+    <div id="total-score-pad" style="display:none;">
+      <div class="total-input-wrap">
+        <input type="number" id="total-score-input" min="0" max="180" placeholder="Enter score...">
+        <button id="total-score-submit" class="primary-btn">Score</button>
       </div>
     </div>
   </section>
@@ -103,6 +120,19 @@
     </div>
   </div>
 </div>
+
+<!-- DART COUNT MODAL (checkout in total-score mode) -->
+<div id="dart-count-modal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">How many darts to checkout?</div>
+    <div id="dart-count-row">
+      <button class="dart-count-btn" data-count="1">1</button>
+      <button class="dart-count-btn" data-count="2">2</button>
+      <button class="dart-count-btn" data-count="3">3</button>
+    </div>
+  </div>
+</div>
+
 <script src="app.js"></script>
 </body>
 </html>
