@@ -43,6 +43,18 @@ const winnerNameEl = document.getElementById('winner-name');
 const winStatsEl = document.getElementById('win-stats');
 const rematchBtn = document.getElementById('rematch-btn');
 const newGameBtn = document.getElementById('new-game-btn');
+const winStatsNavBtn = document.getElementById('win-stats-nav-btn');
+
+// ---------- Stats screen elements ----------
+const statsNavBtn = document.getElementById('stats-nav-btn');
+const statsBackBtn = document.getElementById('stats-back-btn');
+const statsEmptyEl = document.getElementById('stats-empty');
+const statsContentEl = document.getElementById('stats-content');
+const statsPlayerToggle = document.getElementById('stats-player-toggle');
+const statsSummaryEl = document.getElementById('stats-summary');
+const trendChartWrap = document.getElementById('trend-chart-wrap');
+const matchHistoryListEl = document.getElementById('match-history-list');
+const clearHistoryBtn = document.getElementById('clear-history-btn');
 
 // ---------- Turn summary modal elements ----------
 const turnModal = document.getElementById('turn-modal');
@@ -488,6 +500,7 @@ function renderTurn() {
 
 function showWinScreen(name) {
   stopVoice();
+  recordMatch(name);
   winnerNameEl.textContent = name;
 
   winStatsEl.innerHTML = '';
@@ -704,6 +717,245 @@ micBtn.addEventListener('click', () => {
 });
 
 initVoice();
+
+// ===================================================================
+// MATCH HISTORY / STATS
+// ===================================================================
+
+const HISTORY_KEY = 'dartHistoryV1';
+
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; }
+  catch (_) { return []; }
+}
+
+function saveHistory(history) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+}
+
+function recordMatch(winnerName) {
+  const history = loadHistory();
+  const record = {
+    id: Date.now(),
+    date: new Date().toISOString(),
+    gameType: state.gameType,
+    outMode: state.outMode,
+    winnerName,
+    players: state.players.map(p => {
+      const totalDarts = p.history.reduce((s, h) => s + h.darts, 0);
+      const totalScore = p.history.reduce((s, h) => s + h.score, 0);
+      const avg = totalDarts > 0 ? +(totalScore / totalDarts * 3).toFixed(1) : 0;
+      const highestTurn = p.history.reduce((m, h) => Math.max(m, h.score), 0);
+      const won = p.name === winnerName;
+      const lastTurn = p.history[p.history.length - 1];
+      return {
+        name: p.name,
+        won,
+        avg,
+        dartsThrown: totalDarts,
+        highestTurn,
+        checkoutDarts: won && lastTurn ? lastTurn.darts : null,
+        checkoutScore: won && lastTurn ? lastTurn.score : null
+      };
+    })
+  };
+  history.push(record);
+  saveHistory(history);
+}
+
+let statsSelectedPlayer = null;
+
+statsNavBtn.addEventListener('click', () => { showScreen('stats-screen'); renderStats(); });
+winStatsNavBtn.addEventListener('click', () => { showScreen('stats-screen'); renderStats(); });
+statsBackBtn.addEventListener('click', () => showScreen('setup-screen'));
+
+clearHistoryBtn.addEventListener('click', () => {
+  if (confirm('Clear all match history? This cannot be undone.')) {
+    saveHistory([]);
+    renderStats();
+  }
+});
+
+function renderStats() {
+  const history = loadHistory();
+
+  if (history.length === 0) {
+    statsEmptyEl.style.display = '';
+    statsContentEl.style.display = 'none';
+    return;
+  }
+  statsEmptyEl.style.display = 'none';
+  statsContentEl.style.display = '';
+
+  const names = [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    history[i].players.forEach(p => { if (!names.includes(p.name)) names.push(p.name); });
+  }
+
+  if (!statsSelectedPlayer || !names.includes(statsSelectedPlayer)) {
+    statsSelectedPlayer = names[0];
+  }
+
+  statsPlayerToggle.innerHTML = '';
+  names.forEach(name => {
+    const btn = document.createElement('button');
+    btn.className = 'toggle-btn' + (name === statsSelectedPlayer ? ' active' : '');
+    btn.textContent = name;
+    btn.addEventListener('click', () => {
+      statsSelectedPlayer = name;
+      renderStats();
+    });
+    statsPlayerToggle.appendChild(btn);
+  });
+
+  const rows = [];
+  history.forEach(match => {
+    const p = match.players.find(pl => pl.name === statsSelectedPlayer);
+    if (p) rows.push({ match, p });
+  });
+
+  renderStatsSummary(rows);
+  renderTrendChart(rows);
+  renderMatchHistoryList(rows);
+}
+
+function renderStatsSummary(rows) {
+  const games = rows.length;
+  const wins = rows.filter(r => r.p.won).length;
+  const winPct = games > 0 ? Math.round((wins / games) * 100) : 0;
+  const totalDarts = rows.reduce((s, r) => s + r.p.dartsThrown, 0);
+  const totalWeighted = rows.reduce((s, r) => s + r.p.avg * r.p.dartsThrown, 0);
+  const careerAvg = totalDarts > 0 ? (totalWeighted / totalDarts).toFixed(1) : '0.0';
+  const bestLegDarts = rows
+    .filter(r => r.p.won && r.p.checkoutDarts)
+    .reduce((m, r) => Math.min(m, r.p.checkoutDarts), Infinity);
+  const highestCheckout = rows
+    .filter(r => r.p.won)
+    .reduce((m, r) => Math.max(m, r.p.checkoutScore || 0), 0);
+  const bestTurn = rows.reduce((m, r) => Math.max(m, r.p.highestTurn), 0);
+
+  const tiles = [
+    { label: 'Games', value: games },
+    { label: 'Win %', value: `${winPct}%` },
+    { label: 'Career Avg', value: careerAvg },
+    { label: 'Best Leg', value: bestLegDarts === Infinity ? '—' : `${bestLegDarts} darts` },
+    { label: 'Highest Checkout', value: highestCheckout || '—' },
+    { label: 'Best Turn', value: bestTurn || '—' }
+  ];
+
+  statsSummaryEl.innerHTML = '';
+  tiles.forEach(t => {
+    const el = document.createElement('div');
+    el.className = 'stat-tile';
+    el.innerHTML = `<div class="stat-tile-value">${t.value}</div><div class="stat-tile-label">${t.label}</div>`;
+    statsSummaryEl.appendChild(el);
+  });
+}
+
+function renderTrendChart(rows) {
+  const points = rows.slice(-15).map(r => ({ avg: r.p.avg, date: r.match.date }));
+
+  trendChartWrap.innerHTML = '';
+
+  if (points.length < 2) {
+    const msg = document.createElement('div');
+    msg.className = 'chart-empty';
+    msg.textContent = 'Play a few more legs to see your trend.';
+    trendChartWrap.appendChild(msg);
+    return;
+  }
+
+  const W = 300, H = 120, PAD = 16;
+  const maxAvg = Math.max(...points.map(p => p.avg), 40);
+  const minAvg = Math.min(...points.map(p => p.avg), 0);
+  const range = (maxAvg - minAvg) || 1;
+
+  const xFor = i => PAD + (i / (points.length - 1)) * (W - PAD * 2);
+  const yFor = v => H - PAD - ((v - minAvg) / range) * (H - PAD * 2);
+
+  const linePoints = points.map((p, i) => `${xFor(i)},${yFor(p.avg)}`).join(' ');
+
+  const gridLines = [0.25, 0.5, 0.75].map(f => {
+    const y = PAD + f * (H - PAD * 2);
+    return `<line x1="${PAD}" y1="${y}" x2="${W - PAD}" y2="${y}" stroke="var(--border)" stroke-width="1" opacity="0.5"/>`;
+  }).join('');
+
+  const dots = points.map((p, i) =>
+    `<circle class="trend-dot" data-idx="${i}" cx="${xFor(i)}" cy="${yFor(p.avg)}" r="3" fill="var(--accent-2)"/>`
+  ).join('');
+
+  trendChartWrap.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" class="trend-svg" id="trend-svg">
+      ${gridLines}
+      <polyline points="${linePoints}" fill="none" stroke="var(--accent-2)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      ${dots}
+    </svg>
+    <div class="trend-tooltip" id="trend-tooltip"></div>
+  `;
+
+  const svgEl = document.getElementById('trend-svg');
+  const tooltipEl = document.getElementById('trend-tooltip');
+
+  function showPoint(idx) {
+    idx = Math.max(0, Math.min(points.length - 1, idx));
+    const p = points[idx];
+    const dateStr = new Date(p.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    tooltipEl.textContent = `${dateStr}: ${p.avg}`;
+    tooltipEl.style.left = `${(xFor(idx) / W) * 100}%`;
+    tooltipEl.style.top = `${(yFor(p.avg) / H) * 100}%`;
+    tooltipEl.classList.add('visible');
+  }
+
+  function hideTooltip() {
+    tooltipEl.classList.remove('visible');
+  }
+
+  function handlePointer(clientX) {
+    const rect = svgEl.getBoundingClientRect();
+    const xRatio = (clientX - rect.left) / rect.width;
+    showPoint(Math.round(xRatio * (points.length - 1)));
+  }
+
+  svgEl.addEventListener('mousemove', (e) => handlePointer(e.clientX));
+  svgEl.addEventListener('mouseleave', hideTooltip);
+  svgEl.addEventListener('touchstart', (e) => handlePointer(e.touches[0].clientX));
+  svgEl.addEventListener('touchmove', (e) => { e.preventDefault(); handlePointer(e.touches[0].clientX); }, { passive: false });
+  svgEl.addEventListener('touchend', hideTooltip);
+}
+
+function renderMatchHistoryList(rows) {
+  matchHistoryListEl.innerHTML = '';
+  const recent = rows.slice().reverse().slice(0, 10);
+  recent.forEach(({ match, p }) => {
+    const opponents = match.players
+      .filter(pl => pl.name !== statsSelectedPlayer)
+      .map(pl => pl.name)
+      .join(', ');
+    const dateStr = new Date(match.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+    const row = document.createElement('div');
+    row.className = 'history-row';
+
+    const main = document.createElement('div');
+    main.className = 'history-row-main';
+    const badge = document.createElement('span');
+    badge.className = 'history-result ' + (p.won ? 'win' : 'loss');
+    badge.textContent = p.won ? 'W' : 'L';
+    const detail = document.createElement('span');
+    detail.className = 'history-detail';
+    detail.textContent = `${match.gameType}${opponents ? ' vs ' + opponents : ''}`;
+    main.appendChild(badge);
+    main.appendChild(detail);
+
+    const side = document.createElement('div');
+    side.className = 'history-row-side';
+    side.innerHTML = `<span>${p.avg} avg</span><span class="history-date">${dateStr}</span>`;
+
+    row.appendChild(main);
+    row.appendChild(side);
+    matchHistoryListEl.appendChild(row);
+  });
+}
 
 // ===================================================================
 // INIT

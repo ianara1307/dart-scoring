@@ -11,7 +11,10 @@
 
   <!-- SETUP SCREEN -->
   <section id="setup-screen" class="screen active">
-    <h1>🎯 Dart Scoring</h1>
+    <div class="setup-header">
+      <h1>🎯 Dart Scoring</h1>
+      <button id="stats-nav-btn" class="icon-btn" title="Stats & History">📊</button>
+    </div>
 
     <div class="setup-row">
       <label>Game Type</label>
@@ -109,6 +112,42 @@
     <div id="win-stats"></div>
     <button id="rematch-btn" class="primary-btn">Rematch</button>
     <button id="new-game-btn" class="secondary-btn">New Game</button>
+    <button id="win-stats-nav-btn" class="secondary-btn">📊 View Stats</button>
+  </section>
+
+  <!-- STATS SCREEN -->
+  <section id="stats-screen" class="screen">
+    <div class="game-header">
+      <span>📊 Stats &amp; History</span>
+      <div class="header-actions">
+        <button id="stats-back-btn" class="icon-btn">✕</button>
+      </div>
+    </div>
+
+    <div id="stats-empty" class="stats-empty" style="display:none;">
+      No games recorded yet — finish a leg to start building stats.
+    </div>
+
+    <div id="stats-content" style="display:none;">
+      <div class="setup-row">
+        <label>Player</label>
+        <div class="toggle-group wrap" id="stats-player-toggle"></div>
+      </div>
+
+      <div id="stats-summary" class="stats-summary-grid"></div>
+
+      <div class="chart-card">
+        <div class="chart-card-title">3-Dart Average Trend</div>
+        <div id="trend-chart-wrap"></div>
+      </div>
+
+      <div class="setup-row">
+        <label>Recent Matches</label>
+        <div id="match-history-list"></div>
+      </div>
+
+      <button id="clear-history-btn" class="secondary-btn">Clear History</button>
+    </div>
   </section>
 
 </div>
