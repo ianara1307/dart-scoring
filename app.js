@@ -730,7 +730,8 @@ function loadHistory() {
 }
 
 function saveHistory(history) {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); }
+  catch (_) { /* storage unavailable (private browsing, quota, etc.) — skip persisting */ }
 }
 
 function recordMatch(winnerName) {
